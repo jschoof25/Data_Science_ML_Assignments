@@ -1,0 +1,446 @@
+---
+title: "BIOST 546 - HW3"
+author: "John Schoof"
+date: "2/23/2021"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE,fig.width=6, fig.height=4)
+knitr::opts_knit$set(root.dir = ("C:/Users/jscho/OneDrive - UW/Winter 2021-LAPTOP-7K6NFTGB/BIOST 546/Homework/")) 
+getwd()
+rm(list=ls())
+options(digits = 4) ## Formats output to 3 digits
+library(tidyverse)
+library(readr)
+library(data.table)
+library(knitr)
+library(GGally)
+library(MASS)
+library(class)
+library(dummies)
+library(stats)
+library(glmnet)
+library(reshape)
+library(ggcorrplot)
+library(rlang)
+library(pROC)
+```
+
+### Question 1: Lasso Regression
+
+```{r 1a}
+## generate data
+  set.seed(1)
+  
+  x <- rnorm(30)
+
+  noise <- rnorm(30)
+```
+
+```{r 1b}
+## generate response vector
+  y <- 3 - 2*x + 3*x^2 + noise
+
+```
+
+1a-b. The above two code chunks create a set of random data, x and y, with values between zero and one.  
+
+```{r 1c}
+## generate matrix of data 
+  datx <- bind_cols(x, x^2, x^3, x^4, x^5, x^6, x^7)
+  colnames(datx) <- c("x", "x2", "x3", "x4", "x5", "x6", "x7")
+  datx <- as.matrix(datx)
+  
+## create grid
+  grid = 10^seq(8,-5,length=100)
+
+## Lass model
+  mod1 = glmnet(datx, y, alpha=1, lambda = grid)
+  
+## plot 
+  plot(mod1, 
+       label = T)
+
+## select tuning parameter
+  mod1.cv = cv.glmnet(datx, y, alpha=1)
+
+## plot
+  plot(mod1.cv)
+
+## minimum lambda value
+  (bestlam <- mod1.cv$lambda.min)
+  
+## fit model with min lambda
+  mod1.final <- glmnet(datx, y, alpha=1, lambda = bestlam)
+  (mod1.pred <- predict(mod1.final, type = "coefficients", s = bestlam))
+  mod1.pred[mod1.pred!=0]
+    
+```
+
+1c. The first plot displays the values of the seven coefficients on different levels of lambda.  The second plot displays the model MSE on the log(lambda).  In the cross validation model, the value of lambda that minimizes the model MSE is `r bestlam`.  I then fit the model on the full dataset using the optimal lambda value.  Below is the equation for that model.  As one can see, the variables x^3, x^4, x^5,and x^7 fall out of the model.  
+
+$$
+  \text{[P}(Y = y) | x, x^2, x^6] = 3.40 - 1.87*x + 2.47*x^2 + 0.02*x^6
+$$
+
+```{r 1d}
+## predictor vector
+  x <- rnorm(1000)
+  noise <- rnorm(100)
+
+## generate response vector
+  y <- 3 - 2*x + 3*x^2 + noise
+  
+## generate matrix of data 
+  datx.d <- bind_cols(x, x^2, x^3, x^4, x^5, x^6, x^7)
+  colnames(datx.d) <- c("x", "x2", "x3", "x4", "x5", "x6", "x7")
+  datx.d <- as.matrix(datx.d)
+
+# Apply Fitted Model
+  mod1.d <- predict(mod1.final, newx = datx.d, s = bestlam)
+  
+# Calculate the MSE
+  lasso.mse <- mean((mod1.d-y)^2)
+  
+```
+1d. The model MSE on the dataset with 1000 observations is `r lasso.mse`.
+
+
+### Question 2: Simple Logistic Regression
+
+```{r 2a}
+## load data
+  dat2 <- fread("wdbc.data")
+  dat2 <- dat2[ , -1]  
+  table(dat2$V2) 
+  which(is.na(dat2)) ## no missing data
+  
+## kx1 = V3,eep and rename variables
+  dat2 <- dat2 %>% dplyr::select(1, 2:31) %>% `colnames<-`(c("diagnosis", paste0("X", 1:30)))
+  dat2 <- dat2 %>% mutate(diagnosis = as.factor(diagnosis))
+  glimpse(dat2)
+```
+
+2a. The Breast Cancer Wisconsin (Diagnostic) data has a sample size of 569, 30 predictor variables, and the outcome variable is defined by two classes, benign and malignant.  The benign class has 357 observations and the malignant class has 212 observations.
+
+```{r 2b}
+## split sample
+  set.seed(2)
+  train_id = sample(nrow(dat2), 400)
+  train = dat2[train_id,]
+  test  = dat2[-train_id,]
+```
+
+```{r 2c}
+
+## Normalize predictors in training set
+  train_norm <- apply(train[, -1], 2, scale)
+
+## Normalize predictors in test set
+  test_norm <- apply(test[, -1], 2, scale)
+```
+
+2b-c. We first split our sample into a training and testing set.  We then normalize the predicto variables around a mean of zero.  We normalize the predictor variables on the testing and training set separately in the code above so that we avoid overfitting the data.  The test set must be a dataset that the model has not seen before. 
+
+```{r 2d}
+## correlation matrix for training predictors
+  corr <- round(cor(train_norm),1)
+
+## plot correlation matrix
+  ggcorrplot(corr)
+
+```
+
+2d. From the above correlation matrix, we can see that X1-4 are highly correlated with X21-24.  
+
+```{r 2e}
+
+  train_norm <- as.data.frame(train_norm)
+  train_norm <- cbind(train$diagnosis, train_norm)
+  train_norm$diagnosis <- train_norm$`train$diagnosis`
+  train_norm <- train_norm %>% dplyr::select(diagnosis, everything())
+  train_norm <- train_norm %>% dplyr::select(-`train$diagnosis`)
+  
+  test_norm <- as.data.frame(test_norm)
+  test_norm <- cbind(test$diagnosis, test_norm)
+  test_norm$diagnosis <- test_norm$`test$diagnosis`
+  test_norm <- test_norm %>% dplyr::select(diagnosis, everything())
+  test_norm <- test_norm %>% dplyr::select(-`test$diagnosis`)
+  
+## Fit Simple Logisitic Regression Model  
+  mod2 <- glm(train$diagnosis ~ ., family = binomial(link = "logit"), data = train_norm)
+  summary(mod2)
+
+## Correlation between variables X1 and X3
+  corr <- cor(train_norm$X1, train_norm$X3)
+
+```
+
+2e. The correlation between X1 and X3 is `r corr`.  This is almost perfect correlation.  Because of this we will not know which of the two variables actually has a biological connection to the outcome.
+
+```{r 2f}
+
+## Training set performances
+  glm.prob.train <- predict(mod2, type = "response") # my model's predictions
+  
+  ## Binary classification based on probability threshold
+  glm.label.train <- rep("B", nrow(train_norm))
+  glm.label.train[glm.prob.train > .5] <- "M"
+  
+  ## confusion matrix (true positive rate and false positive rate)
+  (tt.glm.train <- table(glm.label.train, train_norm$diagnosis))
+  ## misclassification error (proportion of all 569 that I predicted correctly)
+  accuracy.train <- mean(glm.label.train == train_norm$diagnosis)
+
+# Test set performances
+  glm.prob.test <- predict(mod2, type = "response", newdata = test_norm)
+  
+  ## Binary classification based on probability threshold
+  glm.label.test <- rep("B", nrow(test_norm))
+  glm.label.test[glm.prob.test > .5] <- "M"
+  ## confusion matrix (true positive rate and false positive rate)
+  (tt.glm.test <- table(glm.label.test, test_norm$diagnosis))
+  ## misclassification error (proportion of test set that I predicted correctly)
+  (glm.accuracy <- mean(glm.label.test == test_norm$diagnosis))
+```
+
+2f. Above are the confusion tables for the training and test set.  The training set has a perfect prediction accuracy.  Given that the test prediction accuracy is lower, `r glm.accuracy`, it appears as though there is overfitting present.  
+
+### Question 3
+
+```{r 3a }
+# Creating a matrix 
+  x.train <- model.matrix(diagnosis~. - 1, data = train_norm)
+  x.test <- model.matrix(diagnosis~. - 1, data = test_norm)
+
+# Creating a vector y
+  y.train <- train_norm$diagnosis
+  y.test <- test_norm$diagnosis
+```
+
+```{r 3b}
+# Create grid
+  grid <- 10^seq(5,-18,length =100)
+
+# Ridge regression model
+  mod3 <- glmnet(x = x.train, y = y.train, alpha=0 , family = "binomial"(link = "logit"), lambda = grid)
+```
+3a-b. The above two code chunks construct data matrices with our data because the glmnet function only accepts matrices as inputs.  We then create a grid of lambda values and then fit a ridge logistic regression model on the training set.
+
+```{r 3c}
+plot(mod3, xvar = "lambda")
+```
+
+3c. Above is the plot of the 30 predictor coefficients on the log of lambda values.  By the time log(lambda) = 0, all coefficients are very close to zero.  As can be seen across the top of the plot, the coefficients never equal zero and all 30 predictors stay in the model.  
+
+```{r 3d}
+# ridge model with cv
+  mod3.cv <- cv.glmnet(x = x.train, y = y.train, alpha = 0, family = binomial, lambda = grid, type.measure = "class")
+
+# lambda that minimizes misclassification error
+  best.lam <- mod3.cv$lambda.min
+
+# Plot of misclassification error
+  plot(mod3.cv)
+
+```
+
+3d. Above is the plot of test set MSE with error bars on the log of lambda values.  The optimal lambda is defined by the left vertical line.   
+
+```{r 3e}
+# variables that are different from 0 for best lambda 
+  (ridge.coef <- predict(mod3.cv, type = "coefficients", s= mod3.cv$lambda.min))
+  length(ridge.coef[ridge.coef !=0] - 1)
+
+```
+
+3e. As we see above, none of the 30 predictor variables equal zero.  This is expected because by definition the ridge regression model does not do feature selection.
+
+```{r 3f}
+  ## Training set performances
+  ridge.prob.train <- predict(mod3.cv, type = "response", s = mod3.cv$lambda.min, newx = x.train) # my model's predictions
+  
+  ## Binary classification based on probability threshold
+  ridge.label.train <- rep("B", nrow(train_norm))
+  ridge.label.train[ridge.prob.train > .5] <- "M"
+  
+  ## confusion matrix (true positive rate and false positive rate)
+  (tt.ridge.train <- table(ridge.label.train, train_norm$diagnosis))
+  ## misclassification error (proportion of all 569 that I predicted correctly)
+  accuracy.train <- mean(ridge.label.train == train_norm$diagnosis)
+
+  ## Test set performances
+  ridge.prob.test <- predict(mod3.cv, type = "response", , s = mod3.cv$lambda.min, newx = x.test)
+  
+  ## Binary classification based on probability threshold
+  ridge.label.test <- rep("B", nrow(test_norm))
+  ridge.label.test[ridge.prob.test > .5] <- "M"
+  ## confusion matrix (true positive rate and false positive rate)
+  (tt.ridge.test <- table(ridge.label.test, test_norm$diagnosis))
+  ## misclassification error (proportion of test set that I predicted correctly)
+  (ridge.accuracy <- mean(ridge.label.test == test_norm$diagnosis))
+```
+
+3f. Above are the confusion tables for the training and test set.  The test prediction accuracy is `r ridge.accuracy`. This is a very high accuracy and it is similar to the prediction error in the training set, so we don't have evidence for overfitting.
+
+```{r 3g }
+## roc curve
+  n_segm = 21
+  TPR = replicate(n_segm, 0)
+  FPR = replicate(n_segm, 0)
+  p_th = seq(0,1,length.out = n_segm)
+  
+  for (i in 1:n_segm)
+  {
+    ridge.label.test = rep("B", nrow(test))
+    ridge.label.test[ridge.prob.test > p_th[i]] = "M"
+    
+    tt.ridge.test = table(ridge.label.test, test_norm$diagnosis)
+    TPR[i] = mean(ridge.label.test[test$diagnosis == "M"] == test_norm$diagnosis[test_norm$diagnosis == "M"])
+    FPR[i] = mean(ridge.label.test[test$diagnosis == "B"] != test_norm$diagnosis[test_norm$diagnosis == "B"])
+  }
+  
+# plot(x = FPR, y = TPR, 'l')
+  ggplot() +
+    geom_path(aes(x = FPR, y = TPR)) + geom_path(aes(x = FPR, y = TPR))+
+    labs(title = "ROC Curve")
+
+```
+
+```{r 3h}
+## area under the curve
+  auc.vec <- c()
+    for (i in 1:20){
+      auc.vec[i] <- ((FPR[i]-FPR[(i+1)]) * ((TPR[i]+TPR[(i+1)])/2))
+    }
+  (auc <- sum(auc.vec))
+```
+
+3g-h.  Above is the ROC curve for the ridge model.  As you can see, there is very little space in the upper left hand corner that is not under the curve.  This is reflected in the AUC of `r auc`.
+
+### Question 4: Lasso Logistic Regression
+
+
+```{r 4b}
+# Create grid
+  grid <- 10^seq(5,-18,length =100)
+
+# Ridge regression model
+  mod4 <- glmnet(x = x.train, y = y.train, alpha=1 , family = "binomial"(link = "logit"), lambda = grid)
+```
+
+4b. The above code chunk creates a grid of lambda values and then fits a lasso logistic regression model on the training set.
+
+```{r 4c}
+plot(mod4, xvar = "lambda")
+```
+
+4c. Above is the plot of the 30 predictor coefficients on the log of lambda values.  By the time log(lambda) = 0, all coefficients become equal to zero and drop out of the model.  The number of coefficients in the model can be seen across the top of the plot.
+
+```{r 4d}
+# ridge model with cv
+  mod4.cv <- cv.glmnet(x = x.train, y = y.train, alpha = 1, family = binomial, lambda = grid, type.measure = "class")
+
+# lambda that minimizes misclassification error
+  best.lam <- mod4.cv$lambda.min
+
+# Plot of misclassification error
+  plot(mod4.cv)
+
+```
+
+4d. Above is the plot of test set MSE with error bars on the log of lambda values.  The optimal lambda is defined by the left vertical line.  The vertical line on the right is a model with a similar MSE but fewer predictor variables.
+
+```{r 4e}
+# variables that are different from 0 for best lambda 
+  (log.lasso.coef <- predict(mod4.cv, type = "coefficients", s= mod4.cv$lambda.min))
+  length(log.lasso.coef[log.lasso.coef !=0] - 1)
+
+```
+
+4e. As we see above, 16 of the predictor coefficients have nonzero values.  This is expected because the lasso regression model does do feature selection.  Variables that are not predictive fall out of the model.
+
+```{r 4f}
+  ## Training set performances
+  log.lasso.prob.train <- predict(mod4.cv, type = "response", s = mod4.cv$lambda.min, newx = x.train) # my model's predictions
+  
+  ## Binary classification based on probability threshold
+  log.lasso.label.train <- rep("B", nrow(train_norm))
+  log.lasso.label.train[log.lasso.prob.train > .5] <- "M"
+  
+  ## confusion matrix (true positive rate and false positive rate)
+  (tt.log.lasso.train <- table(log.lasso.label.train, train_norm$diagnosis))
+  ## misclassification error (proportion of all 569 that I predicted correctly)
+  accuracy.train <- mean(log.lasso.label.train == train_norm$diagnosis)
+
+  ## Test set performances
+  log.lasso.prob.test <- predict(mod4.cv, type = "response", , s = mod4.cv$lambda.min, newx = x.test)
+  
+  ## Binary classification based on probability threshold
+  log.lasso.label.test <- rep("B", nrow(test_norm))
+  log.lasso.label.test[log.lasso.prob.test > .5] <- "M"
+  ## confusion matrix (true positive rate and false positive rate)
+  (tt.log.lasso.test <- table(log.lasso.label.test, test_norm$diagnosis))
+  ## misclassification error (proportion of test set that I predicted correctly)
+  (log.lasso.accuracy <- mean(log.lasso.label.test == test_norm$diagnosis))
+```
+
+4f. Above are the confusion tables for the training and test set.  The test prediction accuracy is `r log.lasso.accuracy`. This is a very high accuracy and it is similar to the prediction error in the training set, so we don't have evidence for overfitting.
+
+```{r 4g}
+## roc curve
+  n_segm = 21
+  TPR = replicate(n_segm, 0)
+  FPR = replicate(n_segm, 0)
+  p_th = seq(0,1,length.out = n_segm)
+  
+  for (i in 1:n_segm)
+  {
+    log.lasso.label.test = rep("B", nrow(test))
+    log.lasso.label.test[log.lasso.prob.test > p_th[i]] = "M"
+    
+    tt.log.lasso.test = table(log.lasso.label.test, test_norm$diagnosis)
+    TPR[i] = mean(log.lasso.label.test[test$diagnosis == "M"] == test_norm$diagnosis[test_norm$diagnosis == "M"])
+    FPR[i] = mean(log.lasso.label.test[test$diagnosis == "B"] != test_norm$diagnosis[test_norm$diagnosis == "B"])
+  }
+  
+# plot(x = FPR, y = TPR, 'l')
+  ggplot() +
+    geom_path(aes(x = FPR, y = TPR)) + geom_path(aes(x = FPR, y = TPR))+
+    labs(title = "ROC Curve")
+
+```
+
+```{r 4h}
+## area under the curve
+  auc.vec <- c()
+    for (i in 1:20){
+      auc.vec[i] <- ((FPR[i]-FPR[(i+1)]) * ((TPR[i]+TPR[(i+1)])/2))
+    }
+  (auc <- sum(auc.vec))
+```
+
+4g-h.  Above is the ROC curve for the ridge model.  As you can see, there is very little space in the upper left hand corner that is not under the curve.  This is reflected in the AUC of `r auc`.
+
+### Question 5: Discussion
+
+The below table summarizes the test set prediction error for all three of the models that I fit on the Breast Cancer Wisconsin Data Set.  The ridge logistic model and the lasso logistic model have the same prediction accuracy, 0.982, which is higher that the normal logistic regression model.  
+
+The ridge and lasso models are penalized models.  Although they have the same prediction accuracy, I would choose the lasso model because it only includes 16 predictor variables compared to 30 in the other two.  This makes interpretation slightly easier and it can help us drop correlated variables from the model.
+
+
+```{r 5, echo=FALSE}
+## table comparing pred accuracy of models on test set
+accuracy <- c(glm.accuracy, ridge.accuracy, log.lasso.accuracy)
+accuracy <- as.data.frame(accuracy)
+accuracy$Model <- c("GLM", "Ridge Logistic", "Lasso Logistic")
+accuracy <- accuracy[, c(2,1)]
+colnames(accuracy) = c("Model", "Test Prediction Accuracy")
+kable(accuracy, caption = "Model Evaluation", digits = 3)
+
+```
+
+
