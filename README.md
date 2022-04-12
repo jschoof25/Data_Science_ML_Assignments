@@ -4,7 +4,10 @@ Data analysis homework assignments in R from courses in biomedical data science 
 ## Biomedical Data Science 
 
 
-## Machine Learning 
+## Machine Learning for Public Health Big Data
+
+
+## Categorical Data Analysis
 
 
 
