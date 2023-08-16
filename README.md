@@ -37,7 +37,7 @@ The purpose of this analysis is investigate the relationship between gene expres
 ### Homework 4
 The purpose of this analysis is to assess the effect of smoking on bone mass density (BMD) in middle aged women.
 #### Methods Used:
-*
+* Inverse probability weighting method in order to estimate 95% cofidence intervals for each estimate
 #### Files:
 * Code: "HW2_Biost544_Schoof_29Oct2020.Rmd"
 * Dataset: "HW2-adaptive-trial.txt"
